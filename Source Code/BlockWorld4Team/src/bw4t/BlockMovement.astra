@@ -1,0 +1,441 @@
+/*
+*
+Created By:               P R A S H A N T   G A R  G  |  STUDENT ID : 16201447
+Created Date:             07-Jan-2016
+Copyright:                University College Dublin
+Subject:				  MULTI-AGENT SYSTEMS (Programming Assignment)
+Description:              Starting File implementing Block World For Team (BW4T) system using 'N' number
+						  of Robots. 
+Version:                  00.00.00.01
+
+Modification history:
+----------------------------------------------------------------------------------------------------------------------------
+Modified By         Modified Date (dd/mm/yyyy)                Version               Description
+---------------------------------------------------------------------------------------------------------------------------
+ *
+ */
+
+package bw4t;
+
+agent BlockMovement {
+	/*
+ 	* Inclusion of modules Console, Prelude, EIS and System start
+ 	*/ 
+	module Console console;
+	module Prelude listOperation;
+	module EIS environment;
+	module System system;
+	
+	/*
+ 	* Predicate declaration for ChildBots.astra
+ 	*/ 
+	types model {
+	
+		formula state(string);					//Predicate state, message parameter defines state of the child agent
+		formula roomColor(string,string);		//Predicate roomColor, gives information about a color present in a room
+		formula sequence(list);					//Environment Predicate sequence, gives information about the sequence in which the blocks are to be retrieved
+		formula getRooms(list);					//Predicate getRooms, gives information about the rooms present in the BW4T environment
+		formula findColorsInRooms(int);			//findColorsInRooms, gives information about the number of child bots involved
+		formula roomVisited(string,boolean);	//Predicate and message parameter roomVisited, tells which room is already visited while gathering blocks information within them
+		formula occupied(string);				//Environment Predicate occupied, gives information about the occupied room
+		formula goingTo(string);				//Predicate goingTo, gives information about the path information of one bot to other existing bots
+		formula agents(list);					//Predicate agents, contains the list of agents in the system
+		
+		formula colorFound(boolean);			//Predicate colorFound, contains information of whether a block with specified color is found or not
+		formula colorFoundPosition(int,string,boolean);	//Predicate colorFoundPosition, contains information of whether a block with specified color at specified position is found or not
+		//formula colorNotFoundInRoom(string,string);		//Predicate colorNotFoundInRoom, gives information of colors not present in the specific room
+		
+	}
+	
+	initial !init(); // Declaration of goal init
+	
+	initial agents([]); // Initial child agents in the system
+	
+	initial colorFound(false);	// Initial status of whether a color is found or not
+	
+	initial getRooms(["RoomC1","RoomC2","RoomC3","RoomB3","RoomB2","RoomB1","RoomA1","RoomA2","RoomA3"]); //Initial list of rooms present in the BW4T environment
+	
+	
+	/**
+	 * Rule Name: [init]
+	 * This rule involves connecting to an BW4T environment , it further calls a subgoal to create the child agents which
+	 * will assist it to complete this BW4T problemjoining the created agent with the existing bw4t environment and sending 
+	 * environment.init([agentcount("1")]); --> The "1" represent only one robot hence no child robots are required
+	 * environment.init([agentcount("2")]); --> The "2" represent two robots to be present to solve the problem
+	 * @param  delta   None
+	 * @return         None
+	 */
+		rule +!init(){
+			environment.launch("bw4t","bw4t-client-3.8.6.jar");	//Launching the BW4T environment
+			
+			
+			/**
+			* Changes to be made here to check the implemented system for multiple bots
+			* Recommended values of agentcount are 1-3, as there are only three free entities in our 
+			* BW4T environment
+			*/
+			//------------------------------------------------------------------------------------------------------------
+			environment.init([agentcount("1")]);				//The Init Paramter "agentcount" which specifies the number of bots to implement the system 
+			
+			//------------------------------------------------------------------------------------------------------------
+			
+			environment.init([launchgui("false")]); //Task C6: Init Parameter launchgui which depicts whether to lauch the gui independently for every bot entity
+			environment.join();	//Connecting to the BW4T environment
+			environment.startEnv(); //Starting the BW4T environment
+			!agentGenerate();	//Sub-Goal to create child agents 
+		}
+	/**
+	* End of Rule [init]
+	*/
+	
+	
+	
+	/**
+	 * Rule Name: [agentGenerate]
+	 * This rule involves creating the robots and linking them to the environment, it further calls subgoals 
+	 * singleRobotMovement [For Single Robot] and multipleRobotsMovement [For Multiple Robots] to solve the BW4T problem
+	 * @param  delta   None
+	 * @return         None
+	 */
+		rule +!agentGenerate(){
+			list entities = environment.freeEntities();		//Free entities in the BW4T environment
+			int i = 0;
+			
+			/**
+		 	* The below code creates the child agents based of the parameter specified in agentcount("n")
+		 	* The agent is then linked to the environment entity and is ready for actions execution
+		 	*/
+	        while (i < listOperation.size(entities)) {
+	        	string entity = listOperation.valueAsString(entities, i);	//fetching the environment entity name
+	            string type = environment.getEntityType(entity);			//fetching the environment entity type
+	            if(type == "bot" & ~(entity =="Bot_1")){					//if type of entity is bot and entity
+	            	system.createAgent(entity,"bw4t.ChildBots");			//Create the child agent
+	             }
+	             i = i + 1;
+	         }
+	         environment.link("Bot_1");		//Treat Bot_1 as master robot and link it to the environment explicitly
+	         
+	         query(agents(list agentList));	//Retrieve the child agents list
+	         query(sequence(list colorSequence));	// Retrieve the Sequence list, which specifies the order in which the blocks are to be picked
+	          
+	          if(listOperation.size(agentList)==0){		//If there are no child agents/bots
+	          	!singleRobotMovement(colorSequence);	//Call singleRobotMovement rule sub-goal
+	          	console.println("Block World Task Completed  !!!! ");
+	          	system.exit();	//Task C6: Terminate the client processes on completion of task
+	          }
+	          
+	          if(listOperation.size(agentList)>0){		//If there exist child agents/bots
+	          	int agentCount = listOperation.size(agentList);		
+	          	!multipleRobotsMovement(colorSequence,agentCount);	//Call multipleRobotsMovement rule sub-goal with agent count as a parameter
+	          	console.println("Block World Task Completed  !!!! ");
+	          	system.exit();	//Task C6: Terminate the client processes on completion of task
+	          }
+	          
+		}	
+	/**
+	* End of Rule [agentGenerate]
+	*/
+	
+	//<...............................Rules for Single Robot..........................................................>//
+	//Task C1,C2,C6
+	
+	/**
+	 * Rule Name: [singleRobotMovement]
+	 * This rule involves finding the blocks with the specified color sequence. It takes help of robotGoingToRoom rule to 
+	 * to complete this problem for single robot
+	 * @param  delta   Param1: list of color sequence
+	 * @return         None
+	 */
+		rule +!singleRobotMovement(list colorsSequence){
+			query(getRooms(list rooms));		// Retrieve the rooms list
+			forall(string seqColr : colorsSequence){	// For every color in the sequence
+				-colorFound(true);			// Remove the belief that the color is found
+				+colorFound(false);			//	Add the belief that the color is not found
+				console.println("Next color for which the block is to be found ::: " + seqColr);
+				forall(string room :rooms){		//For every color in a sequence of rooms
+					if(colorFound(false)){		//if the color is not found
+						if(roomVisited(room,true) & roomColor(room,seqColr)){	//if the room is visited and contains he required color
+							!robotGoingToRoom(room, seqColr, colorsSequence);	//Plan robotGoingToRoom to be executed
+						}else if(~roomVisited(room,true)){						//if the room is not visited 
+							+roomVisited(room,true);							//Add a belief that the room is visited
+							!robotGoingToRoom(room, seqColr, colorsSequence);	//Plan robotGoingToRoom to be executed
+						}
+					}	
+				}
+			}
+		}
+	/**
+	* End of Rule [singleRobotMovement]
+	*/
+	
+	
+	/**
+	 * Rule Name: [robotGoingToRoom]
+	 * This rule helps in find the blocks in reference to color in a sequence, also it gives information about colors present in the room 
+	 * @param  delta   Param1: room to be visited, Param 2: color for which the block is to be searched, Param3 : color sequence list
+	 * @return         None
+	 */
+		rule +!robotGoingToRoom(string room, string currentColor, list colorsSequence){
+			if(colorFound(false)){	//if the color is not found
+				environment.goTo(room);	//Go to the specified room
+				wait(environment.at(room));	//Wait there
+				int match = 0;	//match variable shows frequency of same color in the room 
+				foreach (environment.color(long colorId, string color)) { //for every color in the room
+					+roomColor(room,color);	//add color present in the room belief
+					if(color==currentColor){	//if color is same as required color
+						match = match +1;		//Increment the match by 1
+					}
+					if(color==currentColor & colorFound(false)){	//If color is same as required color and not found
+						environment.goToBlock(colorId);				//Go to that block
+						wait(environment.state("arrived"));
+						environment.pickUp(colorId);				//Pick it up
+						-colorFound(false);							//Remove the belief that the color is not found
+						+colorFound(true);							//Add the belief that the color is found
+						
+						/*
+						* If the color is found drop the block in the dropzone
+						*/
+						if(colorFound(true)){
+							environment.goTo("DropZone");
+							wait(environment.at("DropZone"));
+							environment.putDown();
+							environment.goTo("FrontDropZone");
+							console.println(currentColor + " : Dropped successfully");
+						}
+					}
+				} 
+				//If one color is present only once in a room and is picked, remove it from the roomColor belief
+				if(match==1){
+					-roomColor(room,currentColor);
+				}
+			} 
+		}
+	/**
+	* End of Rule [robotGoingToRoom]
+	*/
+	
+	//<.......................................................................................................>//
+	
+	
+	
+	
+	//<...............................Rules for Multiple Robots..........................................................>//
+	//Task C3,C4,C5,C6
+	
+	/**
+	 * Rule Name: [multipleRobotsMovement]
+	 * This rule involves finding the blocks with the specified color sequence. Here the parent bot coordinates 
+	 * with the child bots to complete this problem
+	 * @param  delta   Param1: list of color sequence, Param 2 number of agents
+	 * @return         None
+	 */
+	 
+		rule +!multipleRobotsMovement(list colorsSequence, int agentCount){
+			query(getRooms(list rooms));	//Retrieve the list of rooms 
+			query(agents(list agentList));	//Retrieve the child robots name
+			int position = 0;
+			
+			/*
+			*	For every sequence color add the color found at some position to be false
+			*/
+			forall(string seqColr : colorsSequence){
+				position = position + 1;
+				+colorFoundPosition(position,seqColr,false);
+			}
+			
+			/*
+			* If only one child bot is present, the parent bot coordinates with the child bot to fetch the information
+			* of colored blocks present in different rooms
+			*/
+			if(agentCount==1){
+				forall(string assignedAgent: agentList ){		// For every child robot
+					send(inform, assignedAgent, getRooms(rooms), []); //Give the information about the room to the child robot
+					send(request, assignedAgent, findColorsInRooms(agentCount), []); //Request the bot to fetch colors in rooms in a coordinated way
+					system.sleep(1000);	//Prevent collision due to message lags Task C6
+				}
+				forall(string room: rooms){		//for all rooms
+					if(~roomVisited(room,true) & ~occupied(room) & ~goingTo(room)){	//if the room is un-visited and un-occupied and nobody is planning to go there
+						+goingTo(room); //Add the specified route as blocked
+						forall(string assignedAgent: agentList ){	//for every child agent
+							send(inform, assignedAgent, goingTo(room), []); //Inform the other bots about its movement
+						}
+						!findColorsInRooms(room,colorsSequence,agentList); //The master bot takes this responsibility to find colors in the room
+					}
+				}
+				environment.goTo("FrontDropZone");
+				
+				/*
+				* The below code involves find the blocks in a sequence by the master bot
+				*/
+				int realPosition = 0;		
+				forall(string seqColr : colorsSequence){ //for every sequence position
+					realPosition = realPosition +1 ;
+					forall(string room: rooms){ //for every room
+						if(roomColor(room,seqColr) & colorFoundPosition(realPosition,seqColr,false)){ // if the color is not already found and room contains that required color
+							!completeTheTask(room,seqColr, realPosition); //Find the color block using completeTheTask plan
+						}
+					}
+				}
+			}
+			/*
+			* If more than one child bots are present, the parent bot coordinates with the child bots to fetch the information
+			* of colored blocks present in different rooms
+			*/
+			else if(agentCount > 1){
+				forall(string assignedAgent: agentList ){ //for every child bot
+					send(inform, assignedAgent, getRooms(rooms),[]); //Give the information about the room to the child robot
+					send(request, assignedAgent, findColorsInRooms(agentCount), []); //Request the bot to fetch colors in rooms in a coordinated way
+					system.sleep(1000);	//Prevent collision due to message lags Task C6
+				}
+				forall(string room: rooms){ //for all rooms
+					if(~roomVisited(room,true) & ~occupied(room) & ~goingTo(room)){ 
+						+goingTo(room);	// Block the route for itself
+						forall(string assignedAgent: agentList ){ // for all child agent/boots
+							send(inform, assignedAgent, goingTo(room),[]); //Inform the other bots about its movement
+						}
+						!findColorsInRooms(room,colorsSequence,agentList);	//The master bot takes this responsibility to find colors in the room
+					}
+				}
+				environment.goTo("FrontDropZone");
+				
+				/*
+				* The below code involves find the blocks in a sequence by the master bot
+				*/
+				int realPosition = 0;
+				forall(string seqColr : colorsSequence){
+					realPosition = realPosition +1 ;
+					forall(string room: rooms){
+						if(roomColor(room,seqColr) & colorFoundPosition(realPosition,seqColr,false)){
+							!completeTheTask(room,seqColr, realPosition); //Find the color block using completeTheTask plan
+						}
+					}
+				}
+			}
+		}
+	/**
+	* End of Rule [multipleRobotsMovement]
+	*/
+	
+	
+	
+	/**
+	 * Rule Name: [findColorsInRooms]
+	 * This rule involves finding the colored blocks present in the different room in a coordinated manner with the 
+	 * child bots
+	 * @param  delta   Param1: Sepecified Room info ,Param2: list of color sequence, Param 3 list of agents
+	 * @return         None
+	 */
+		rule +!findColorsInRooms(string room,list colorsSequence, list agentList){
+			environment.goTo(room);
+			+roomVisited(room,true);
+			wait(environment.at(room));
+			foreach (environment.color(long colorId, string color)) {
+				+roomColor(room,color);
+				forall(string assignedAgent: agentList ){		// For every child robot
+					send(inform,assignedAgent,roomColor(room,color), []); //send the information about the color present in the room
+				}
+			}
+			forall(string assignedAgent: agentList ){		// For every child robot
+					send(inform,assignedAgent,roomVisited(room,true), []); //send the information about the room visited by the master agent
+			}
+			-occupied(room); //Remove the occupancy belief
+		}
+	/**
+	* End of Rule [findColorsInRooms]
+	*/
+	
+	/**
+	 * Rule Name: [completeTheTask]
+	 * This rule involves master bot picking up the blocks on the basis of information shared to him by the child bots
+	 * @param  delta   Param1: Sepecified Room info ,Param2: list of color sequence, Param 3 list of agents
+	 * @return         None
+	 */
+		rule +!completeTheTask(string room,string currentColor, int realPosition){
+			environment.goTo(room);
+			wait(environment.at(room));
+			int match = 0;
+			foreach (environment.color(long colorId, string color)) {
+					if(color == currentColor){
+						match = match + 1;
+						if(match==1){
+							environment.goToBlock(colorId);
+							wait(environment.state("arrived"));
+							environment.pickUp(colorId);
+							environment.goTo("DropZone");
+							wait(environment.at("DropZone"));
+							environment.putDown();
+							environment.goTo("FrontDropZone");
+							-roomColor(room,currentColor);
+							-colorFoundPosition(realPosition,currentColor,false);
+							+colorFoundPosition(realPosition,currentColor,true);
+						}
+						if(match>1){
+							+roomColor(room,currentColor);
+						}
+						console.println(currentColor + " : Dropped successfully");
+				}
+			} 
+		}
+	/**
+	* End of Rule [completeTheTask]
+	*/
+	
+	
+
+	/*
+	*		Environment Events with Predicates
+	*/
+	
+	//Event 1 : Global Predicate Occupied  
+	//Holds if any robot is in the room
+	rule +$environment.event(occupied(string room)) {
+		+occupied(room);
+	}
+	
+	//Event 2: Sequence - sequence of colors in which the blocks are to be dropped
+	// Sent to each bot once, when the bots links with the environment
+	rule +$environment.event(sequence(list colorsSequence)) {
+		+sequence(colorsSequence);
+	}
+
+
+	/*
+	*		Received Messages from the Child Agents
+	*/
+
+	//Message 1: Message type @inform
+	//Send by the Generic Child agent file after linking the child Agent to the environment entity
+	rule @message(inform, string sender, state(string X), []) {
+	      	console.println(sender + " is created!");
+	      	/**
+			 * The below code adds each created child agent to the list agentList
+			 */
+	      	query(agents(list agentList));
+	      	listOperation.add(agentList,sender);
+	      	+agents(agentList);
+	      	// --------------------------------------------------------------------
+	 }
+	 
+	
+	//Message 2: Message type @inform
+	//Message sent whenever Child agent visits a room
+	rule @message(inform, string sender, roomVisited(string room,boolean status), []) {
+		console.println("Room visited ::: " + room);
+	     +roomVisited(room,status); //Belief is added which depicts that the room has been already visited
+	 }
+	 
+	
+	//Message 3: Message type @inform
+	//Message sent by Child agents informing about the colors present in rooms
+	  rule @message(inform, string sender, roomColor(string room,string color), []) {
+	     +roomColor(room,color);  // Belief is added which depicts a color present in the room
+	 }
+	 
+	
+	//Message 4: Message type @inform
+	//Message sent by Child agents informing the master agent of the room it is going to fetch the colors in rooms
+	 rule @message(inform, string sender, goingTo(string room), []) {
+	     +goingTo(room);		// Belief is added which depicts busy route
+	 }
+      
+}

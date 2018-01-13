@@ -1,0 +1,229 @@
+/*
+*
+Created By:               P R A S H A N T   G A R  G  |  STUDENT ID : 16201447
+Created Date:             07-Jan-2017
+Copyright:                University College Dublin
+Subject:				  MULTI-AGENT SYSTEMS (Programming Assignment)
+Description:              This ASTRA class File helps in creating generics multiple agents by binding agents with 
+						  the Block World Entities (Robots). The communication between the master agent and child agents is
+						  done with the help of FIPA messaging
+						  of Bots. 
+Version:                  00.00.00.01
+
+Modification history:
+----------------------------------------------------------------------------------------------------------------------------
+Modified By         Modified Date (dd/mm/yyyy)                Version               Description
+---------------------------------------------------------------------------------------------------------------------------
+ *
+ */
+
+package bw4t;
+
+agent ChildBots {
+
+
+	/*
+ 	* Inclusion of modules Console, Prelude, EIS and System start
+ 	*/ 
+	module Console console;
+	module Prelude listOperation;
+	module EIS environment;
+	module System system;
+	
+	
+	/*
+ 	* Predicate declaration for ChildBots.astra
+ 	*/
+	types model{
+		formula state(string);					//Predicate state, defines state of the child agent
+		formula roomColor(string,string);		//Predicate roomColor, gives information about a color present in a room
+		formula sequence(list);					//Environment Predicate sequence, gives information about the sequence in which the blocks are to be retrieved
+		formula getRooms(list);					//Predicate getRooms, message parameter gives information about the rooms present in the BW4T environment
+		formula findColorsInRooms(int);			//findColorsInRooms, message parameter gives information about the number of child bots involved
+		formula roomVisited(string,boolean);	//Predicate and message parameter roomVisited, tells which room is already visited while gathering blocks information within them
+		formula occupied(string);				//Environment Predicate occupied, gives information about the occupied room
+		formula goingTo(string);				//Predicate goingTo, gives information about the path information of one bot to other existing bots
+		formula agents(list);					//Predicate agent, contains the list of agents in the system
+	}
+	
+	
+	initial !init();		// Declaration of goal init
+	
+	initial agents([]);		// Initial child agents in the system
+	
+	
+	/**
+	 * Rule Name: [init]
+	 * This rule involves joining the created agent with the existing bw4t environment and sending 
+	 * the message to the master agent (main) informing the state of the child agent
+	 * @param  delta   None
+	 * @return         None
+	 */
+    rule +!init() {
+    	environment.join("bw4t");						// Joining the Child Agent with Existing BW4T environment
+    	environment.link(system.name());  				// Linking the Agent with the Bot entity of the BW4T envionment
+		send(inform,system.getOwner(), state("alive"),[]);	// FIPA inform message sent to the master agent (main) after linking the child agent with the environment entity
+
+		/**
+		 * The below code adds each created child agent to the list agentList
+		 */
+		query(agents(list agentList));		
+		listOperation.add(agentList,system.name());
+		+agents(agentList);
+		// --------------------------------------------------------------------
+     }
+     /**
+	 * End of Rule [init]
+	 */
+     
+     /**
+	 * Rule Name: [findColorsInRooms]
+	 * This rule involves finding the colors in a room and sending that information to the parent agent 
+	 * @param  delta   Param 1: room ( to be visites), Param 2: color sequence list
+	 * @return         None
+	 */
+     rule +!findColorsInRooms(string room,list colorsSequence){
+		environment.goTo(room);			// Robot going to the specified room
+		+roomVisited(room,true);		// roomVisited belief with parameter room & visit status depicting that the room has been visited
+		wait(environment.at(room));		// Waiting at the room
+		
+		
+		//For every color in the room, add the belief roomColor which gives the information of a color in the room
+		// and send that information to the master robot/master agent
+		foreach (environment.color(long colorId, string color)) { //For Every color
+			+roomColor(room,color);								  //add roomColor belief which depicts a color in a room
+			send(inform,system.getOwner(),roomColor(room,color)); //send this information to the main robot/agent
+		}
+		send(inform,system.getOwner(),roomVisited(room,true));	//Send room visited information to the main robot/agent
+		-occupied(room); //remove the added belief of occupancy
+	}
+     /**
+	 * End of Rule [findColorsInRooms]
+	 */
+     
+
+	/*
+	*		Environment Events with Predicates
+	*/
+	
+	//Event 1 : Global Predicate Occupied  
+	//Holds if any robot is in the room
+	rule +$environment.event(occupied(string room)) {
+		+occupied(room);
+	}
+	
+	//Event 2: Sequence - sequence of colors in which the blocks are to be dropped
+	// Sent to each bot once, when the bots links with the environment
+	rule +$environment.event(sequence(list colorsSequence)) {
+		+sequence(colorsSequence);
+	}
+	
+	
+	/*
+	*		Received Messages from the Child Agents
+	*/
+	
+	//Message 1: Message type @inform
+	//Message sent by Parent agent informing about the colors present in rooms to Child Agent
+	rule @message(inform, string sender, roomColor(string room,string color), []) {
+          +roomColor(room,color);	// Belief is added which depicts a color present in the room
+      }
+
+	//Message 2: Message type @inform
+	//Message sent by Parent agent giving information about the rooms     
+     rule @message(inform, string sender, getRooms(list rooms), []) {
+          +getRooms(rooms);	// Belief is added which depicts the rooms information to the child agents
+      }
+      
+    //Message 3: Message type @inform
+	//Message sent by Parent while visiting a room
+     rule @message(inform, string sender, roomVisited(string room,boolean status), []) {
+          +roomVisited(room,status);	//Belief is added which depicts that the room has been already visited
+      }
+      
+    //Message 4: Message type @inform
+	//Message sent by Parent while deciding its path to a particular room
+      rule @message(inform, string sender, goingTo(string room), []) {
+          +goingTo(room);  // Belief is added which depicts busy route
+      }
+      
+    //Message 5: Message type @request
+	//Message sent by Parents to ask child agents(robots) to find color in rooms
+     rule @message(request, string sender, findColorsInRooms(int numOfAgents), []) {
+     	query(getRooms(list rooms));			//Fetching the list of rooms present in the environment
+     	query(sequence(list colorsSequence));	//Feteching the list of colors in the sequence 
+     	//list roomsList = [];
+     	
+     	/**
+		 * The below code provides the coordination strategy in which the child robots choose the rooms in which they will go 
+		 * to find the colors in different rooms
+		 */
+     	if(numOfAgents == 1){				//if the number of child robot is one
+     		listOperation.reverse(rooms);	//reverse the room list
+     	}else if(numOfAgents > 1){			//if the number of child robots are more than one
+     			if(system.name()=="Bot_2"){		//for the robot 2 reverse the list of rooms for TASK C3
+     				listOperation.reverse(rooms);	//reverse the room list for robot 2
+     			}
+      	}
+     	int skipRooms = 0; // Creating skipRooms variable to skip  rooms for each child robot in order to prevent clashes due to message lag
+     	
+     	forall(string room: rooms){		// for all rooms
+     		skipRooms = skipRooms + 1;	//skip variable incremented to skip a room
+     		if(~(system.name()=="Bot_2") & skipRooms> numOfAgents){	// if it is not Robot 2 and room skiped is more than the child robot count
+     			if(~roomVisited(room,true) & ~occupied(room)& ~goingTo(room)){ //if the room is not occupies or visited or planned to be visited by anyother robot
+     				+goingTo(room); //reserve the path for itself
+     				send(inform, system.getOwner(), goingTo(room)); //inform main robot about this path
+     				
+     				/*
+     				* Inform other child robots about this path
+     				*/
+     				query(agents(list agentsList));	
+     				forall(string agentInst : agentsList){
+     					if(~(system.name()==agentInst)){
+     						send(inform, agentInst, goingTo(room));
+     					}
+     				}
+     				
+     				/*
+     				* Go to the planned room and find the colors in the that room -- Rule findColorsInRooms called
+     				*/
+     				!findColorsInRooms(room,colorsSequence);
+				}
+			}
+			
+			/*
+			*	The same task of finding the colors in the room is done for the robot Bot_2
+			*/
+			else if(system.name()=="Bot_2"){
+				if(~roomVisited(room,true) & ~occupied(room)& ~goingTo(room)){	//if the room is not occupies or visited or planned to be visited by anyother robot
+     				+goingTo(room); //reserve the path for itself
+     				send(inform, system.getOwner(), goingTo(room)); //inform main robot about this path
+     				
+     				/*
+     				* Inform other child robots about this path
+     				*/
+     				query(agents(list agentsList));
+     				forall(string agentInst : agentsList){
+     					if(~(system.name()==agentInst)){
+     						send(inform, agentInst, goingTo(room));
+     					}
+     				}
+     				/*
+     				* Go to the planned room and find the colors in the that room -- Rule findColorsInRooms called
+     				*/
+     				!findColorsInRooms(room,colorsSequence);
+				}
+			} 
+		}
+		// ----------------------------------------------------------------------------------------
+		if(system.name()=="Bot_2"){
+			environment.goTo("LeftHallD");
+		}else{
+			environment.goTo("RightHallD");
+		}	
+     }
+}
+
+/**
+ * End of File
+ */
